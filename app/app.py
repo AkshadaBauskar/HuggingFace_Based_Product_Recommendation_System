@@ -1,3 +1,6 @@
+import os
+os.environ["TRANSFORMERS_NO_TF"] = "1"  # force Transformers to skip TF/Keras
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # optional: cleaner logs
 import numpy as np
 import pandas as pd
 import streamlit as st
