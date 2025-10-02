@@ -12,8 +12,13 @@ __pycache__/
 *.egg-info/
 
 
-# artifacts
-artifacts/
+# Ignore everything in artifacts by default
+artifacts/*
+
+# But keep these files
+!artifacts/embeddings.npy
+!artifacts/id_map.parquet
+
 
 
 # notebooks
