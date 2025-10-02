@@ -1,5 +1,7 @@
 # Hugging Face–Based Product Recommendation System  
 
+## Streamlit app: https://huggingfacebasedappuctrecommendationsystem-o7vryn96ceebtxwknvl.streamlit.app/
+
 ## Project Overview  
 This project implements a semantic product recommendation system powered by **Hugging Face embeddings**. Instead of relying only on keywords, it understands the meaning of product titles and descriptions to suggest relevant items. The system supports three core use cases:  
 1. **Free-text search** – Users can describe what they want in plain language.  
