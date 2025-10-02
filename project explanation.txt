@@ -1,0 +1,158 @@
+app.py = Interactive UI frontend for your recommender.
+
+Three functionalities:
+
+Search products via query
+
+Find similar products by ID
+
+Recommend based on browsing history
+
+Uses cached embeddings and CatalogIndex for efficiency.
+
+Built with Streamlit, powered by Hugging Face embeddings.
+
+The script embed_catalog.py is responsible for preparing the product catalog so that it can later be used for semantic search and recommendations. It is essentially a preprocessing step where product text data is converted into numerical vectors (embeddings) using a Hugging Face model.
+
+The process begins by loading configuration parameters from the Config class in src/config.py. This configuration defines important paths (such as where the dataset lives and where embeddings should be saved) and also specifies which embedding model to use. Once the configuration is loaded, the script imports the product catalog stored in data/products_dataset.csv. The function load_catalog() reads the dataset into a DataFrame, and build_combined_text() enriches the data by combining the product title and description into a single text field. This combined field provides richer input to the embedding model, ensuring that each product is represented by both its name and its descriptive details.
+
+Next, the script initializes an instance of the Embedder class. This class wraps around the Hugging Face SentenceTransformer model defined in the configuration, and it provides methods to transform raw text into embeddings. The script then passes the combined product text into the embedder. The model encodes each product into a fixed-length vector (in this case, 384 dimensions for bge-small-en-v1.5). These embeddings capture semantic meaning, so that similar products are represented by vectors that are close together in vector space. After embedding, the script prints the shape of the resulting matrix (number of products × embedding dimension) as a quick check.
+
+Finally, the script saves the results into the artifacts/ folder using the save() method of the embedder. Two files are created:
+
+embeddings.npy, which stores the full matrix of product embeddings,
+
+id_map.parquet, which maps product IDs to the row indices in the embedding matrix, ensuring alignment between products and their embeddings.
+
+By the end of execution, the catalog is fully encoded into embeddings and stored locally. These artifacts can then be loaded quickly by other parts of the system—such as the CLI recommender (recommend_cli.py) or the Streamlit app (app.py)—without having to recompute embeddings every time. This makes the workflow efficient, modular, and production-ready.
+
+The recommend_cli.py script provides a command-line interface (CLI) for running the product recommender system without needing a web interface. It allows users to query the catalog in three different ways:
+
+By entering a free-text query,
+
+By specifying a particular product ID to find similar items, or
+
+By providing a list of recently viewed product IDs to generate personalized recommendations.
+
+The script begins by importing key components from the project:
+
+Config for configuration details such as file paths and model information,
+
+load_catalog() for reading the dataset,
+
+Embedder for working with embeddings, and
+
+CatalogIndex for performing similarity search.
+
+It then sets up argument parsing using Python’s argparse. Four command-line arguments are supported:
+
+--query: a free-text description (e.g., "budget wireless headphones")
+
+--similar_to: a specific product_id to find similar products
+
+--recent_ids: a comma-separated list of product IDs representing recently viewed products
+
+--top_k: the number of results to return (default is 10)
+
+After parsing arguments, the script loads the configuration and prints a message confirming that the catalog and artifacts are being loaded. The catalog is read from products_dataset.csv, and the precomputed embeddings plus ID mapping are loaded from the artifacts/ folder. Since embeddings must align with the catalog rows, the script reorders the DataFrame to match the row indices saved in id_map.parquet. This ensures that each product in the DataFrame corresponds exactly to its embedding vector in memory.
+
+Next, a CatalogIndex object is created, which is a wrapper around the embeddings and product data, offering methods to search by query, find similar products, or generate recommendations based on user history.
+
+Depending on the command-line arguments supplied:
+
+If --query is used, the script embeds the input text, searches the catalog for the most similar products, and prints their IDs, titles, and similarity scores.
+
+If --similar_to is used, it finds the top-k products most similar to the specified product ID.
+
+If --recent_ids is provided, the recommender builds a “profile vector” by averaging embeddings of those products, then retrieves the closest new items.
+
+If none of the options are provided, the script simply prints the help message to guide the user.
+
+The results are displayed in a clean tabular format using Pandas’ .to_string(), showing product_id, title, and similarity score.
+
+
+The config.py file defines a configuration class for the entire recommendation system. Instead of scattering hard-coded values throughout the code, the project centralizes them here using a Python dataclass. This makes the system easier to maintain, modify, and reuse.
+
+1. Import statements
+from dataclasses import dataclass
+import torch
+
+
+dataclass is used to simplify the creation of a class that mainly holds configuration data.
+
+torch is imported to detect whether a GPU (CUDA) is available, which determines how the embedding model should run.
+
+2. Config class
+@dataclass
+class Config:
+
+
+The Config class holds all key parameters for the project. Using a dataclass automatically provides an initializer, representation, and immutability-like behavior, making it cleaner and more Pythonic.
+
+3. Model configuration
+model_name: str = "BAAI/bge-small-en-v1.5"  # 384-dim, strong + fast
+batch_size: int = 128
+device: str = "cuda" if torch.cuda.is_available() else "cpu"
+bge_query_prefix: str = "Represent this sentence for searching relevant passages: "
+
+
+model_name: Specifies which Hugging Face sentence-transformers model to use. Here it’s BAAI/bge-small-en-v1.5, a compact yet powerful model that produces 384-dimensional embeddings optimized for semantic search and recommendations.
+
+batch_size: Controls how many texts are processed at once when generating embeddings. A batch size of 128 balances speed and memory usage.
+
+device: Automatically sets to "cuda" if a GPU is available, otherwise "cpu". This ensures the model runs as efficiently as possible without requiring manual setup.
+
+bge_query_prefix: A recommended prefix for queries when using BGE models. Adding this string to a search query improves semantic matching because the model was trained with such instruction prompts.
+
+4. File paths
+data_csv: str = "data/products_dataset.csv"
+embeddings_path: str = "artifacts/embeddings.npy"
+id_map_path: str = "artifacts/id_map.parquet"
+pca_2d_path: str = "artifacts/pca_2d.npy"
+
+
+These define consistent file locations across the project:
+
+data_csv: Path to the raw dataset containing product information (IDs, titles, descriptions).
+
+embeddings_path: Where the generated embeddings matrix (NumPy .npy file) is stored.
+
+id_map_path: Stores the mapping between product IDs and their embedding row indices (in .parquet format) to maintain alignment between data and embeddings.
+
+pca_2d_path: (Optional) Stores 2D reduced embeddings (via PCA) for visualization purposes.
+
+The data_utils.py file provides utility functions for preparing and enriching the product catalog before it is used in the recommendation pipeline. Its main role is to ensure that the dataset is valid, properly annotated with user interaction status, and ready for embedding generation.
+
+The script begins by importing Pandas for data manipulation and defining a constant RECENT_COL, which represents the column name ("product_status") used to track whether a product has been recently viewed by the user or not. This column is critical for personalizing recommendations because it allows the system to distinguish between items the user has already interacted with and those that are still candidates for recommendation.
+
+The first function, load_catalog(), is responsible for reading the product dataset from a CSV file into a Pandas DataFrame. It includes a validation step to ensure that the dataset contains the three required columns: product_id, title, and description. If any of these columns are missing, the function raises a clear error, preventing the system from working with incomplete data. This guarantees that the recommender always has the minimal information needed to represent each product and generate embeddings.
+
+The second function, mark_recently_viewed(), enriches the dataset by adding the product_status column. Initially, all products are marked as "not_viewed". If a list of product IDs is provided (representing items the user has recently interacted with), those specific rows are updated to "recently_viewed". This mechanism simulates user behavior and serves as the foundation for generating personalized recommendations, where embeddings from recently viewed items are used to suggest similar products.
+
+The third function, build_combined_text(), prepares the textual data that will be sent into the embedding model. It concatenates the title and description columns into a single field called combined. The title provides concise product information, while the description adds richer context, and joining them ensures that the embedding model has enough semantic detail to represent the product meaningfully. The function also strips whitespace and inserts a period between title and description for clarity. This combined text becomes the input for generating embeddings later in the pipeline.
+
+The embeddings.py file defines the logic for generating and managing embeddings, which are the numerical representations of product text used to measure similarity between items. At its core, it introduces an Embedder class that serves as a convenient wrapper around Hugging Face’s SentenceTransformer models. By centralizing embedding operations in this class, the project ensures consistency, reusability, and clean integration with other components.
+
+When the Embedder class is initialized, it takes in a Config object (from config.py). This configuration specifies which transformer model to use (model_name), whether to run on GPU or CPU (device), and the batch size for encoding. Inside the constructor, the script loads the Hugging Face model using SentenceTransformer, ensuring that all subsequent embedding operations are tied to the chosen model and runtime settings.
+
+The encode_texts() method is responsible for converting a list of text strings into embeddings. It accepts any iterable of text, processes them in batches (to avoid memory issues), and returns a NumPy array of embeddings. Importantly, embeddings are L2-normalized (via normalize_embeddings=True), which means each vector has unit length. This normalization ensures that cosine similarity can be computed directly using dot products, making similarity calculations both simpler and numerically stable.
+
+The embed_dataframe() method integrates embedding generation with the project’s dataset. It expects the input DataFrame to contain a "combined" column, which is the concatenation of product titles and descriptions (prepared earlier by build_combined_text in data_utils.py). If this column is missing, it raises an error, preventing accidental misuse. When present, the method extracts the combined text, encodes it with the model, and outputs the embedding matrix.
+
+The save() method handles persistence of embeddings to disk. It first ensures that the artifacts directory exists, then saves the embedding matrix as a .npy file for efficient loading. In addition, it creates and saves an ID mapping file (id_map.parquet), which records the relationship between product IDs and their row indices in the embedding matrix. This mapping is crucial because it guarantees that when embeddings are reloaded, they remain aligned with the corresponding products in the catalog.
+
+Finally, the load() method provides a simple way to retrieve previously generated embeddings and the ID mapping. It loads the NumPy embeddings file and the Parquet ID map file, returning them together. This allows other parts of the system (like the recommender logic or CLI scripts) to work directly with precomputed embeddings instead of regenerating them each time, making the workflow more efficient.
+
+The recommender.py file implements the core recommendation logic of the project. It defines a CatalogIndex class that brings together the embeddings of products and the metadata DataFrame (titles, descriptions, IDs) to perform different types of similarity-based searches. This class is at the heart of the system because it determines how user input—whether a free-text query, a product ID, or a browsing history—is translated into product recommendations.
+
+The class is defined as a dataclass, which simplifies initialization and ensures that its attributes are clearly defined and immutable-like. It has two key fields:
+
+embeddings: a NumPy array of shape (N, D) where each row corresponds to a product embedding. The embeddings are assumed to be L2-normalized, which allows dot products to serve as cosine similarity.
+
+df: a Pandas DataFrame containing product metadata (IDs, titles, descriptions, etc.) in the same row order as the embeddings. This alignment ensures that when similarity scores are computed, the corresponding product information can be retrieved directly.
+
+The first method, search_by_query(), enables free-text search. It takes a query string, prepends the recommended BGE query prefix to align with how the model was trained, and uses the embedding model to generate a query embedding. Similarities between this query embedding and all product embeddings are calculated using a dot product (which equals cosine similarity since vectors are normalized). The top-k most similar products are selected, and their metadata plus similarity scores are returned as a DataFrame. This allows users to describe what they are looking for in plain language and receive relevant product recommendations.
+
+The second method, search_similar_to_product(), finds items similar to a specific product in the catalog. Given a product_id, it locates the corresponding embedding, computes similarity with all other embeddings, and retrieves the most similar products. Importantly, it excludes the product itself from the results to avoid recommending the exact same item. This method is useful when a customer views a product, and the system needs to suggest alternatives or complements that are semantically close.
+
+The third method, search_by_recent(), generates recommendations based on a list of recently viewed products. It first collects embeddings for all products in the provided list, then computes their average embedding to form a “user profile vector.” This profile represents the overall intent of the user’s browsing session. The vector is re-normalized and compared against the full catalog to find the most similar products. To ensure recommendations are fresh, any products that were already viewed are excluded from the results. The top-k remaining items are then returned with their similarity scores. This approach makes the recommender session-aware and personalized.

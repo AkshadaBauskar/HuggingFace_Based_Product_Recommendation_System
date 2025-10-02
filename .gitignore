@@ -1,0 +1,20 @@
+# secrets and local data
+api_key.txt
+.env
+*.env
+
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+
+# artifacts
+artifacts/
+
+
+# notebooks
+.ipynb_checkpoints/
